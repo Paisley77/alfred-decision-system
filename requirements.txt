@@ -1,0 +1,3 @@
+Flasks
+anthropic
+python-dotenv

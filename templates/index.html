@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>alfred_ Decision System</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        select,
+        button {
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .decision {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #007bff;
+        }
+
+        .verdict {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .rationale {
+            color: #555;
+            margin-bottom: 10px;
+        }
+
+        .debug {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .debug.show {
+            display: block;
+        }
+
+        .failure-btn {
+            background: #dc3545;
+            margin-left: 10px;
+        }
+
+        .failure-btn:hover {
+            background: #c82333;
+        }
+
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>alfred_ Execution Decision Layer</h1>
+        <p>Contextual decision system with LLM + deterministic safety rules</p>
+    </div>
+
+    <div class="container">
+        <h2>Select Scenario</h2>
+        <select id="scenarioSelect" style="width: 100%;">
+            <option value="">-- Choose a preloaded scenario --</option>
+        </select>
+
+        <div style="margin-top: 20px;">
+            <button onclick="runDecision(false)">Run Decision</button>
+            <button onclick="runDecision(true)" class="failure-btn">Simulate LLM Failure</button>
+            <button onclick="showDebug()">Show/Hide Debug Info</button>
+        </div>
+    </div>
+
+    <div class="container" id="actionDisplay">
+        <h2>Current Action</h2>
+        <pre id="actionJson">Select a scenario to see action details</pre>
+    </div>
+
+    <div class="container" id="contextDisplay">
+        <h2>Conversation Context</h2>
+        <div id="conversationHtml">Select a scenario to see conversation</div>
+    </div>
+
+    <div style="margin-top: 30px; border-top: 2px solid #ddd; padding-top: 20px;">
+        <h2>Or Submit Your Own Action + Context</h2>
+
+        <!-- <div style="margin-bottom: 15px;">
+            <label><strong>Action Type:</strong></label>
+            <select id="customActionType" style="width: 100%; padding: 8px; margin-top: 5px;">
+                <option value="send_email">send_email</option>
+                <option value="read_file">read_file</option>
+                <option value="delete_file">delete_file</option>
+                <option value="send_slack">send_slack</option>
+                <option value="execute_command">execute_command</option>
+            </select>
+        </div> -->
+
+        <div style="margin-bottom: 15px;">
+            <label><strong>Action Type:</strong></label>
+            <input type="text" id="customActionType"
+                placeholder="e.g., send_email, read_file, search_web, send_slack, create_file, delete_file, read_screen, execude_command, post_tweet, create_calendar_event"
+                style="width: 100%; padding: 8px; margin-top: 5px; font-family: monospace;" value="">
+            <small style="color: #666;">Enter any action type (the system will assign risk level based on name)</small>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label><strong>Action Parameters (JSON):</strong></label>
+            <textarea id="customParams" rows="3" style="width: 100%; font-family: monospace; padding: 8px;">{
+                "to": "user@example.com",
+                "subject": "Test",
+                "body": "Hello"
+                }
+            </textarea>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label><strong>Conversation Context (JSON array):</strong></label>
+            <textarea id="customConversation" rows="6" style="width: 100%; font-family: monospace; padding: 8px;">[
+                {"role": "user", "content": "Can you send an email to John?"},
+                {"role": "alfred", "content": "What should the email say?"},
+                {"role": "user", "content": "Just say hello"}
+                ]
+            </textarea>
+            <small style="color: #666;">Format: [{"role": "user" or "alfred", "content": "message"}]</small>
+        </div>
+
+        <button onclick="runCustomDecision(false)">Run on Custom Input</button>
+        <button onclick="runCustomDecision(true)" class="failure-btn">Simulate Failure on Custom</button>
+        <button onclick="showDebug()">Show/Hide Custom Debug Info</button>
+    </div>
+
+    <div class="container" id="decisionDisplay" style="display:none;">
+        <h2>Decision</h2>
+        <div id="decisionResult"></div>
+    </div>
+
+    <div class="container" id="debugDisplay" style="display:none;">
+        <h2>Under the Hood</h2>
+        <div id="debugResult"></div>
+    </div>
+
+    <div class="container">
+        <h2>Decision Rules & Pipeline</h2>
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 14px;">
+
+            <!-- Pipeline Diagram -->
+            <div style="margin-bottom: 20px;">
+                <h3>Decision Pipeline</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center;">
+                    <div style="background: #e3f2fd; padding: 10px; border-radius: 6px;">1. User Input<br>(Action +
+                        Context)</div>
+                    <div style="font-size: 20px;">→</div>
+                    <div style="background: #fff3e0; padding: 10px; border-radius: 6px;">2. LLM Analysis<br>(Intent +
+                        Ambiguity)</div>
+                    <div style="font-size: 20px;">→</div>
+                    <div style="background: #e8f5e9; padding: 10px; border-radius: 6px;">3. Deterministic
+                        Risk<br>(Action Type → Risk Level)</div>
+                    <div style="font-size: 20px;">→</div>
+                    <div style="background: #fce4ec; padding: 10px; border-radius: 6px;">4. Override Rules<br>(Risk vs
+                        LLM Verdict)</div>
+                    <div style="font-size: 20px;">→</div>
+                    <div style="background: #d1c4e9; padding: 10px; border-radius: 6px;">5. Final Decision</div>
+                </div>
+            </div>
+
+            <!-- Risk Mapping Table -->
+            <div style="margin-bottom: 20px;">
+                <h3>Action → Risk Level (Deterministic)</h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead>
+                        <tr style="background: #ddd;">
+                            <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Action Type</th>
+                            <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Risk Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">send_email</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #c8e6c9;">LOW</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">read_file</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #c8e6c9;">LOW</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">search_web</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #c8e6c9;">LOW</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">create_calendar_event</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #c8e6c9;">LOW</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">send_slack</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #fff9c4;">MEDIUM</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">create_file</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #fff9c4;">MEDIUM</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">post_tweet</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #fff9c4;">MEDIUM</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">delete_file</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #ffccbc;">HIGH</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">read_screen</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #ffccbc;">HIGH</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">execute_command</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #ef9a9a;">CRITICAL</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;">delete_everything</td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #ef9a9a;">CRITICAL</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ccc;"><em>unknown type</em></td>
+                            <td style="padding: 6px; border: 1px solid #ccc; background: #fff9c4;">🟡 MEDIUM (default)
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Override Rules -->
+            <div>
+                <h3>Deterministic Override Rules</h3>
+                <div style="background: white; padding: 12px; border-radius: 6px;">
+                    <p><strong>Silent Execution Threshold:</strong> <code
+                            style="background: #e0e0e0; padding: 2px 6px;">SILENT_EXECUTION_THRESHOLD = "low"</code><br>
+                        → Only <span style="background: #c8e6c9; padding: 2px 6px;">LOW risk</span> actions can be
+                        executed silently.</p>
+
+                    <p><strong>Override Logic:</strong></p>
+                    <ul style="margin-top: 5px;">
+                        <li><strong>CRITICAL risk</strong> → Force <code>refuse</code> (cannot automate)</li>
+                        <li><strong>HIGH risk</strong> + LLM says <code>execute_silently</code> or
+                            <code>execute_and_tell</code> → Force <code>confirm_before_execute</code>
+                        </li>
+                        <li><strong>MEDIUM risk</strong> + LLM says <code>execute_silently</code> → Force
+                            <code>execute_and_tell</code>
+                        </li>
+                        <li><strong>LOW risk or LLM produces sufficiently risk-aware verdict</strong> → No override (LLM
+                            decision stands)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Current Action Risk Display (dynamic) -->
+            <div id="riskDisplay"
+                style="margin-top: 20px; padding: 12px; background: #e8f4f8; border-radius: 6px; display: none;">
+                <strong>Current Action Risk:</strong> <span id="currentRiskValue">—</span><br>
+                <strong>Applied Override:</strong> <span id="currentOverride">None</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentExample = null;
+        let debugVisible = false;
+
+        // Load examples
+        fetch('/examples')
+            .then(res => res.json())
+            .then(examples => {
+                const select = document.getElementById('scenarioSelect');
+                examples.forEach((ex, idx) => {
+                    const option = document.createElement('option');
+                    option.value = idx;
+                    option.textContent = ex.name;
+                    select.appendChild(option);
+                });
+
+                select.onchange = () => {
+                    const idx = select.value;
+                    if (idx !== "") {
+                        currentExample = examples[idx];
+                        displayExample(currentExample);
+                    }
+                };
+            });
+
+        function displayExample(example) {
+            document.getElementById('actionJson').innerHTML = JSON.stringify(example.action, null, 2);
+
+            const convHtml = example.conversation.map(msg =>
+                `<div style="margin: 5px 0;"><strong>${msg.role}:</strong> ${msg.content}</div>`
+            ).join('');
+            document.getElementById('conversationHtml').innerHTML = convHtml;
+
+            document.getElementById('decisionDisplay').style.display = 'none';
+            document.getElementById('debugDisplay').style.display = 'none';
+        }
+
+        function runDecision(simulateFailure) {
+            if (!currentExample) {
+                alert('Please select a scenario first');
+                return;
+            }
+
+            const payload = {
+                action: currentExample.action,
+                conversation: currentExample.conversation,
+                simulate_failure: simulateFailure
+            };
+
+            fetch('/decide', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(res => res.json())
+                .then(data => {
+                    displayDecision(data.decision, data.debug);
+                });
+        }
+
+        function displayDecision(decision, debug) {
+            const verdictColors = {
+                'execute_silently': '#28a745',
+                'execute_and_tell': '#17a2b8',
+                'confirm_before_execute': '#ffc107',
+                'ask_clarifying_question': '#fd7e14',
+                'refuse': '#dc3545'
+            };
+
+            const color = verdictColors[decision.verdict] || '#6c757d';
+
+            const html = `
+                <div class="decision" style="border-left-color: ${color}">
+                    <div class="verdict" style="color: ${color}">Verdict: ${decision.verdict}</div>
+                    <div class="rationale">${decision.rationale}</div>
+                    ${decision.clarification_question ? `<div style="margin-top: 10px;"><strong>❓ Clarification:</strong> ${decision.clarification_question}</div>` : ''}
+                </div>
+            `;
+
+            document.getElementById('decisionResult').innerHTML = html;
+            document.getElementById('decisionDisplay').style.display = 'block';
+
+            // Store debug for later
+            window.currentDebug = debug;
+        }
+
+        function showDebug() {
+            if (!window.currentDebug) return;
+
+            debugVisible = !debugVisible;
+            const debugDiv = document.getElementById('debugDisplay');
+
+            if (debugVisible) {
+                const html = `
+                    <pre>Risk Level: ${window.currentDebug.risk_level || 'unknown'}</pre>
+                    <pre>Prompt Template: ${window.currentDebug.prompt_sent}</pre>
+                    <pre>Raw Output: ${JSON.stringify(window.currentDebug.raw_llm_output, null, 2)}</pre>
+                `;
+                document.getElementById('debugResult').innerHTML = html;
+                debugDiv.style.display = 'block';
+            } else {
+                debugDiv.style.display = 'none';
+            }
+        }
+
+        function runCustomDecision(simulateFailure) {
+            // Parse action
+            const actionType = document.getElementById('customActionType').value;
+            let params;
+            try {
+                params = JSON.parse(document.getElementById('customParams').value);
+            } catch (e) {
+                alert('Invalid JSON in action parameters: ' + e.message);
+                return;
+            }
+
+            // Parse conversation
+            let conversation;
+            try {
+                conversation = JSON.parse(document.getElementById('customConversation').value);
+                if (!Array.isArray(conversation)) throw new Error('Must be an array');
+            } catch (e) {
+                alert('Invalid JSON in conversation: ' + e.message);
+                return;
+            }
+
+            const action = {
+                type: actionType,
+                parameters: params
+            };
+
+            const payload = {
+                action: action,
+                conversation: conversation,
+                simulate_failure: simulateFailure
+            };
+
+            fetch('/decide', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(res => res.json())
+                .then(data => {
+                    displayDecision(data.decision, data.debug);
+                })
+                .catch(err => {
+                    alert('Error: ' + err.message);
+                });
+        }
+
+    </script>
+</body>
+
+</html>
